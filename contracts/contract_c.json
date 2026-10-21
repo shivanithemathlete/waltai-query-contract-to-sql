@@ -1,0 +1,11 @@
+{
+  "metrics": [
+    {
+      "name": "order_count"
+    }
+  ],
+  "group_by": [
+    "region"
+  ],
+  "totals": "grand"
+}
