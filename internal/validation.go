@@ -7,6 +7,10 @@ import (
 
 func Validate(semModel SemanticModel, contract Contract) error {
 	// Validate metrics
+	if len(contract.Metrics) == 0 {
+		return fmt.Errorf("at least one metric is required")
+	}
+
 	for _, requested := range contract.Metrics {
 		var metric *MetricDefinition
 
