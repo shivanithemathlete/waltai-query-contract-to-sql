@@ -5,49 +5,48 @@ import (
 	"slices"
 )
 
-func Validate(model SemanticModel, contract Contract) error {
+func Validate(semModel SemanticModel, contract Contract) error {
 	// Validate metrics
 	for _, requested := range contract.Metrics {
 		var metric *MetricDefinition
 
-		for i := range model.Metrics {
-			if model.Metrics[i].Name == requested.Name {
-				metric = &model.Metrics[i]
+		for i := range semModel.Metrics {
+			if semModel.Metrics[i].Name == requested.Name {
+				metric = &semModel.Metrics[i]
 				break
 			}
 		}
 
+		// input metrics need to be defined in the semantic model
 		if metric == nil {
 			return fmt.Errorf("unknown metric: %s", requested.Name)
 		}
 
 		// Validate metric-level filters
-		for _, requested := range contract.Metrics {
-			for _, filter := range requested.Filters {
-				if err := validateFilter(model.Dimensions, filter); err != nil {
-					return err
-				}
+		for _, filter := range requested.Filters {
+			if err := validateFilter(semModel.Dimensions, filter); err != nil {
+				return err
 			}
 		}
 	}
 
 	// Validate global filters
 	for _, filter := range contract.Filters {
-		if err := validateFilter(model.Dimensions, filter); err != nil {
+		if err := validateFilter(semModel.Dimensions, filter); err != nil {
 			return err
 		}
 	}
 
 	// Validate compare
 	if contract.Compare != nil {
-		if err := validateCompare(*contract.Compare, model); err != nil {
+		if err := validateCompare(*contract.Compare, semModel); err != nil {
 			return err
 		}
 	}
 
 	// Validate group_by
 	for _, field := range contract.GroupBy {
-		if err := validateFilter(model.Dimensions, Filter{
+		if err := validateFilter(semModel.Dimensions, Filter{
 			Field: field,
 		}); err != nil {
 			return err
@@ -57,16 +56,21 @@ func Validate(model SemanticModel, contract Contract) error {
 	return nil
 }
 
-func validateCompare(compare Compare, model SemanticModel) error {
+func validateCompare(compare Compare, semModel SemanticModel) error {
 	// Validate dimension
-	if err := validateFilter(model.Dimensions, Filter{
+	if err := validateFilter(semModel.Dimensions, Filter{
 		Field: compare.Dimension,
 	}); err != nil {
 		return err
 	}
 
+	// Validate periods
+	if len(compare.Periods) != 2 {
+		return fmt.Errorf("compare must contain exactly two periods")
+	}
+
 	// Validate primary period
-	if compare.Primary == "" ||
+	if compare.Primary != "" &&
 		!slices.Contains(compare.Periods, compare.Primary) {
 		return fmt.Errorf("compare primary must be one of the requested periods")
 	}
