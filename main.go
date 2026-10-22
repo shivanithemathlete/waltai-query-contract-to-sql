@@ -15,6 +15,7 @@ func main() {
 		panic(err)
 	}
 
+	// provide contract path here
 	contract, err := loadContract("contracts/contract_c.json")
 	if err != nil {
 		panic(err)

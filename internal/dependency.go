@@ -23,15 +23,12 @@ func ResolveDependencies(
 	contract Contract,
 ) (Dependencies, error) {
 	// check for multi-model metrics
-	metricsModels := make([]string, 0)
-	for _, metric := range contract.Metrics {
-		addMissingModels(semModel.Dimensions, &metricsModels, metric.Name)
+	if checkMultiModelMetrics(semModel, contract) {
+		return Dependencies{}, fmt.Errorf(
+			"unsupported_mixed_metric_models: metrics must share one base model",
+		)
 	}
 
-	if len(metricsModels) > 1 {
-		return Dependencies{}, fmt.Errorf("unsupported_mixed_metric_models")
-	}
-	
 	// Find the primary model from the first metric.
 	var primaryModel string
 	for _, metric := range semModel.Metrics {
@@ -148,4 +145,29 @@ func addMissingModels(dims []Dimension, models *[]string, field string) {
 			break
 		}
 	}
+}
+
+func checkMultiModelMetrics(semModel SemanticModel, contact Contract) bool {
+	metricsModels := make([]string, 0)
+
+	for _, requested := range contact.Metrics {
+		var model string
+
+		for _, definition := range semModel.Metrics {
+			if definition.Name == requested.Name {
+				model = definition.Model
+				break
+			}
+		}
+
+		if model != "" && !slices.Contains(metricsModels, model) {
+			metricsModels = append(metricsModels, model)
+		}
+	}
+
+	if len(metricsModels) > 1 {
+		return true
+	}
+
+	return false
 }
