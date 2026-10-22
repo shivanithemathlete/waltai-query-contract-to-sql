@@ -10,7 +10,7 @@ CREATE TABLE dim_store (
 
 CREATE TABLE dim_calendar (
     date DATE,
-    fiscal_year VARCHAR
+    fiscal_year INTEGER
 );
 
 CREATE TABLE fact_sales (
@@ -25,8 +25,8 @@ INSERT INTO dim_store VALUES
 (1, 'North'), (2, 'South'), (3, 'West');
 
 INSERT INTO dim_calendar VALUES
-('2025-01-01', '2025'),
-('2026-01-01', '2026');
+('2025-01-01', 2025),
+('2026-01-01', 2026);
 
 INSERT INTO fact_sales VALUES
 (1, '2025-01-01', 'O-201', 'Offline', 100),
@@ -91,7 +91,7 @@ LEFT JOIN dim_store t1 ON t0.store_id = t1.store_id
 """
 
 try:
-    result = db.execute(query_c)
+    result = db.execute(query_a)
     print("Columns:", [col[0] for col in result.description])
     for row in result.fetchall():
         print(row)
