@@ -19,10 +19,15 @@ func GenerateSQL(
 
 	// SELECT
 	query.WriteString("SELECT\n")
-	query.WriteString(generateSelectExpressions(semModel, plan, false))
+	selectExpr, err := generateSelectExpressions(semModel, plan, false)
+	if err != nil {
+		return "", err
+	}
 
-	// FROM JOINS AND GLOBAL FILTER
-	query.WriteString(generateFromWhere(plan))
+	query.WriteString(selectExpr)
+
+	// FROM JOINS AND WHERE (GLOBAL FILTER)
+	query.WriteString(generateFromJoinWhereClause(plan))
 
 	// GROUP BY
 	if len(plan.GroupBy) > 0 {
@@ -30,31 +35,44 @@ func GenerateSQL(
 		query.WriteString("\nGROUP BY " + groupBy)
 	}
 
-	// GRAND TOTAL
+	// TOTALs (UNION ALL)
 	if plan.Totals == "grand" && len(plan.GroupBy) > 0 {
-		var totalQuery strings.Builder
-
-		totalQuery.WriteString("SELECT\n")
-		totalQuery.WriteString(
-			generateSelectExpressions(semModel, plan, true),
-		)
-		totalQuery.WriteString(generateFromWhere(plan))
-
 		query.WriteString("\nUNION ALL\n")
-		query.WriteString(totalQuery.String())
+		totalQuery, err := generateTotalQuery(semModel, plan)
+		if err != nil {
+			return "", err
+		}
+
+		query.WriteString(totalQuery)
 	}
 
 	return query.String(), nil
+}
+
+func generateTotalQuery(semModel SemanticModel, plan QueryPlan) (string, error) {
+	var totalQuery strings.Builder
+
+	totalQuery.WriteString("SELECT\n")
+	selectExpr, err := generateSelectExpressions(semModel, plan, true)
+	if err != nil {
+		return "", err
+	}
+
+	totalQuery.WriteString(selectExpr)
+
+	totalQuery.WriteString(generateFromJoinWhereClause(plan))
+
+	return totalQuery.String(), nil
 }
 
 func generateSelectExpressions(
 	semModel SemanticModel,
 	plan QueryPlan,
 	grandTotal bool,
-) string {
+) (string, error) {
 	var query strings.Builder
 
-	// Dimensions
+	// Dimensions from GroupBy
 	for i, group := range plan.GroupBy {
 		if i > 0 {
 			query.WriteString(",\n")
@@ -79,15 +97,24 @@ func generateSelectExpressions(
 	}
 
 	// Comparison or regular metrics
-	if plan.Compare != nil && len(plan.Compare.Periods) > 0 {
-		query.WriteString(compareExpression(semModel, plan))
+	if plan.Compare != nil {
+		compareQuery, err := compareExpression(semModel, plan)
+		if err != nil {
+			return "", err
+		}
+
+		query.WriteString(compareQuery)
 	} else {
 		for i, metric := range plan.Metrics {
 			if i > 0 {
 				query.WriteString(",\n")
 			}
 
-			expression := generateMetricExpression(semModel, metric, plan)
+			expression, err := generateMetricExpression(semModel, metric, plan)
+			if err != nil {
+				return "", err
+			}
+
 			alias := metric.As
 			if alias == "" {
 				alias = metric.Name
@@ -99,10 +126,10 @@ func generateSelectExpressions(
 		}
 	}
 
-	return query.String()
+	return query.String(), nil
 }
 
-func generateFromWhere(plan QueryPlan) string {
+func generateFromJoinWhereClause(plan QueryPlan) string {
 	var query strings.Builder
 
 	// FROM
@@ -139,7 +166,7 @@ func generateFromWhere(plan QueryPlan) string {
 	return query.String()
 }
 
-func generateMetricExpression(semModel SemanticModel, metric MetricRequest, plan QueryPlan) string {
+func generateMetricExpression(semModel SemanticModel, metric MetricRequest, plan QueryPlan) (string, error) {
 	definition := getMetricDefinition(semModel, metric)
 
 	var expression string
@@ -149,11 +176,11 @@ func generateMetricExpression(semModel SemanticModel, metric MetricRequest, plan
 	case "count_distinct":
 		expression = fmt.Sprintf("COUNT(DISTINCT t0.%s)", definition.Expression)
 	default:
-		return ""
+		return "", fmt.Errorf("unsupported aggregation: %s", definition.Agg)
 	}
 
 	if len(metric.Filters) == 0 {
-		return expression
+		return expression, nil
 	}
 
 	var conditions []string
@@ -170,19 +197,19 @@ func generateMetricExpression(semModel SemanticModel, metric MetricRequest, plan
 		return fmt.Sprintf(
 			"SUM(CASE WHEN %s THEN t0.%s END)",
 			strings.Join(conditions, " AND "), definition.Expression,
-		)
+		), nil
 	case "count_distinct":
 		return fmt.Sprintf(
 			"COUNT(DISTINCT CASE WHEN %s THEN t0.%s END)",
 			strings.Join(conditions, " AND "), definition.Expression,
-		)
+		), nil
 	default:
-		return ""
+		return "", fmt.Errorf("unsupported aggregation: %s", definition.Agg)
 	}
 }
 
 // assuming we have exactly 2 periods
-func compareExpression(semModel SemanticModel, plan QueryPlan) string {
+func compareExpression(semModel SemanticModel, plan QueryPlan) (string, error) {
 	var expressions []string
 
 	primaryPeriod := plan.Compare.Primary
@@ -195,22 +222,21 @@ func compareExpression(semModel SemanticModel, plan QueryPlan) string {
 		}
 	}
 
-	if baselinePeriod == "" {
-		return ""
-	}
-
 	for _, metric := range plan.Metrics {
 		metricAlias := metric.As
 		if metricAlias == "" {
 			metricAlias = metric.Name
 		}
 
-		primaryExpr := generateCompareExpression(
-			semModel, metric, primaryPeriod, plan,
-		)
-		baselineExpr := generateCompareExpression(
-			semModel, metric, baselinePeriod, plan,
-		)
+		primaryExpr, err := generateCompareExpression(semModel, metric, primaryPeriod, plan)
+		if err != nil {
+			return "", err
+		}
+
+		baselineExpr, err := generateCompareExpression(semModel, metric, baselinePeriod, plan)
+		if err != nil {
+			return "", err
+		}
 
 		// Period values
 		if slices.Contains(plan.Compare.Outputs, "values") {
@@ -237,29 +263,58 @@ func compareExpression(semModel SemanticModel, plan QueryPlan) string {
 		}
 	}
 
-	return strings.Join(expressions, ",\n    ")
+	return strings.Join(expressions, ",\n    "), nil
 }
 
-func generateCompareExpression(semModel SemanticModel, metric MetricRequest, period string, plan QueryPlan) string {
+func generateCompareExpression(
+	semModel SemanticModel,
+	metric MetricRequest,
+	period string,
+	plan QueryPlan,
+) (string, error) {
 	definition := getMetricDefinition(semModel, metric)
 	model := getDimensionModel(semModel.Dimensions, plan.Compare.Dimension)
 	alias := modelAlias(model, plan)
 
+	// Compare Dimension filter
+	conditions := []string{
+		fmt.Sprintf(
+			"%s.%s = %s",
+			alias,
+			plan.Compare.Dimension,
+			sqlLiteral(period),
+		),
+	}
+
+	// Metric-level filters
+	for _, filter := range metric.Filters {
+		filterAlias := modelAlias(filter.Model, plan)
+		conditions = append(conditions, fmt.Sprintf(
+			"%s.%s %s %s",
+			filterAlias,
+			filter.Field,
+			filter.Op,
+			sqlLiteral(filter.Value),
+		))
+	}
+
+	condition := strings.Join(conditions, " AND ")
+
 	switch definition.Agg {
 	case "sum":
 		return fmt.Sprintf(
-			"SUM(CASE WHEN %s.%s = %s THEN t0.%s END)",
-			alias, plan.Compare.Dimension, sqlLiteral(period),
+			"SUM(CASE WHEN %s THEN t0.%s END)",
+			condition,
 			definition.Expression,
-		)
+		), nil
 	case "count_distinct":
 		return fmt.Sprintf(
-			"COUNT(DISTINCT CASE WHEN %s.%s = %s THEN t0.%s END)",
-			alias, plan.Compare.Dimension, sqlLiteral(period),
+			"COUNT(DISTINCT CASE WHEN %s THEN t0.%s END)",
+			condition,
 			definition.Expression,
-		)
+		), nil
 	default:
-		return ""
+		return "", fmt.Errorf("unsupported aggregation: %s", definition.Agg)
 	}
 }
 

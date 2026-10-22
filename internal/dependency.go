@@ -60,6 +60,7 @@ func identifyJoins(semModel SemanticModel, deps Dependencies) ([]Join, error) {
 
 		relationFound := false
 
+		// primary model is repesented as left model
 		for _, relationship := range semModel.Relationships {
 			if relationship.From == primaryModel &&
 				relationship.To == requiredModel {
