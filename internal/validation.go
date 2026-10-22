@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 func Validate(semModel SemanticModel, contract Contract) error {
@@ -71,6 +72,13 @@ func validateCompare(compare Compare, semModel SemanticModel) error {
 	// Validate periods
 	if len(compare.Periods) != 2 {
 		return fmt.Errorf("compare must contain exactly two periods")
+	}
+
+	// Validate period value: not accepting empty period
+	for _, period := range compare.Periods {
+		if strings.TrimSpace(period) == "" {
+			return fmt.Errorf("compare periods must not be empty")
+		}
 	}
 
 	// Validate primary period
