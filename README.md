@@ -76,7 +76,7 @@ This separates the meaning of the request from the mechanics of rendering SQL.
 - metric-level filters are applied within conditional aggregate expressions.
 - comparison values are calculated for each requested period.
 - delta and percentage change are calculated from the period values.
-- Grand totals are calculated from the rows instead of summing grouped results (contract C distinct order as an example).
+- - Grand totals are computed by re-aggregating the rows instead of summing grouped results, to ensure correct totals for non-additive metrics like `COUNT_DISTINCT` (Contract C).
 - JOIN Type
     * joined dimesion with a global filter - use *INNER JOIN* to eliminate unmatched rows
     * joined dimension without a global filter - use *LEFT JOIN* so unmatched fact rows are not dropped
@@ -99,12 +99,6 @@ Run the compiler:
 
 ```bash
 go run .
-```
-
-Run tests:
-
-```bash
-go test ./...
 ```
 
 ## Things to Investigate / Pending
