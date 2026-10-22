@@ -81,13 +81,18 @@ func validateCompare(compare Compare, semModel SemanticModel) error {
 		}
 	}
 
-	// Validate primary period
+	// Validate primary period - if its present, it should be one of the two periods
 	if compare.Primary != "" &&
 		!slices.Contains(compare.Periods, compare.Primary) {
 		return fmt.Errorf("compare primary must be one of the requested periods")
 	}
 
-	// Validate outputs
+	// Vali outputs: cannot be empty
+	if len(compare.Outputs) == 0 {
+		return fmt.Errorf("compare must contain at least one output")
+	}
+
+	// Validate output values
 	for _, output := range compare.Outputs {
 		if output != OutputValues &&
 			output != OutputDelta &&
